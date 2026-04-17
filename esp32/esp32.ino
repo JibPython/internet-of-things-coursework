@@ -90,7 +90,7 @@ void rfid_check() {
     uids_in_room.push_back(uid);
 
     vector<String> lcd_text = {"authorised user", "entered room"};
-    send_lcd_message(lcd_text, 1000);
+    send_lcd_message(lcd_text, 5000);
 
     Serial.println("acceptable user trying to enter room");
   }
