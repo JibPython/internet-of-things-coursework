@@ -1,70 +1,165 @@
+// for rfid
+#include <SPI.h>
+#include <MFRC522v2.h>
+#include <MFRC522DriverSPI.h>
+#include <MFRC522DriverPinSimple.h>
+#include <MFRC522Debug.h>
 
-#include <LiquidCrystal.h>
+// setting up the 1602 lcd display
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
 
-// setting up the Liquid 
-const int rs = 5, en = 6, d4 = 7, d5 = 4, d6 = 3, d7 = 2;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+#define SDA_PIN 21
+#define SCL_PIN 22
 
-// setting up the ultrasound sensor
-#define echoPin 9
-#define trigPin 10
-long duration; 
-int distance; 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-// setting up the motion sensor 
-const int motionPin = 4;
+// for handling people inside the room
+#include <vector>
+#include <ctime>
+#include <algorithm>
+using namespace std;
+// .push_back("") to add to back to vector
+// .pop_back("") to remove last vector item
+vector<String> uids_in_room = {};
+vector<String> acceptable_uids = {"97770d01"};
+
+// setting up the 1602 lcd row values
+String top_row_lcd = "                ";
+String bottom_row_lcd = "                ";
+
+// setting up the RFID module
+MFRC522DriverPinSimple ss_pin(32);
+MFRC522DriverSPI driver{ss_pin};
+MFRC522 mfrc522{driver};
+
+// setting up the passive buzzer
+const int buzzer_pin = 33;
+
 
 void setup() {
   Serial.begin(115200);
-  // for motion sensor
-  pinMode(motionPin, INPUT);
-  // for ultrasound sensor
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  // for lcd display
-  lcd.begin(16, 2);
-  lcd.print("hello, world!");
+
+  // setting up the 1602 lcd display 
+  Wire.begin(SDA_PIN, SCL_PIN);
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+
+  // setting up the RFID module
+  SPI.begin(27, 19, 23, 32); // SCK, MISO, MOSI, SS
+  mfrc522.PCD_Init();
+
+  // setting up the passive buzzer
+  pinMode(buzzer_pin, OUTPUT);
+
+
 }
 
 void loop() {
-  // LCD CODE
-  // set the cursor to column 0, line 1
-  // (note: line 1 is the second row, since counting begins with 0):
+
+  rfid_check();
+
+  delay(50);
+}
+ 
+
+void rfid_check() {
+  // Reset the loop if no new card present on the sensor/reader. This saves the entire process when idle.
+	if (!mfrc522.PICC_IsNewCardPresent()) {
+		Serial.println("FAILED AT STOP 1");
+    return;
+	}
+
+	// Select one of the cards.
+	if (!mfrc522.PICC_ReadCardSerial()) {
+    Serial.println("FAILED AT STOP 2");
+		return;
+	}
+
+  Serial.println("GOT TO HERE");
+
+
+  const String uid = get_rfid_uid();
+  time_t current_time = get_current_time();
+  bool is_rfid_acceptable = get_rfid_acceptable(uid);
+  bool is_uid_in_room = get_uids_in_room(uid);
+
+  // acceptable user trying to enter room
+  if (is_rfid_acceptable && !is_uid_in_room) {
+    uids_in_room.push_back(uid);
+
+    vector<String> lcd_text = {"authorised user", "entered room"};
+    send_lcd_message(lcd_text, 1000);
+
+    Serial.println("acceptable user trying to enter room");
+  }
+  // acceptable user trying to leave room
+  else if (is_rfid_acceptable && is_uid_in_room) {
+    remove_uid_from_room(uid);
+
+    vector<String> lcd_text = {"authorised user", "left room"};
+    send_lcd_message(lcd_text, 5000);
+
+    Serial.println("acceptable user trying to leave room");
+  }
+  // unacceptable user trying to interact with RFID
+  else if (!is_rfid_acceptable && uid != "") {
+    vector<String> lcd_text = {"RFID not in", "the database"};
+    send_lcd_message(lcd_text, 5000);
+
+    activate_buzzer(1);
+
+    Serial.println("unacceptable user trying to interact with RFID");
+  }
+}
+
+String get_rfid_uid() {
+  String uid_string = "";
+  for (uint8_t i = 0; i < mfrc522.uid.size; i++) {
+    if (mfrc522.uid.uidByte[i] < 0x10) {
+      uid_string += "0";
+    }
+    uid_string += String(mfrc522.uid.uidByte[i], HEX);
+  }
+  Serial.println("Current uid: " + uid_string);
+  return uid_string;
+}
+
+// finds out if argument is in acceptable_uids vector
+bool get_rfid_acceptable(String uid) {
+  return std::find(acceptable_uids.begin(), acceptable_uids.end(), uid) != acceptable_uids.end();
+}
+
+// finds out if the uid is currently inside the room
+bool get_uids_in_room(String uid) {
+  return std::find(uids_in_room.begin(), uids_in_room.end(), uid) != uids_in_room.end();
+}
+
+time_t get_current_time() {
+  return time(NULL);
+}
+
+void send_lcd_message(vector<String> text, int timeout) {
+  lcd.setCursor(0, 0);
+  lcd.print(text.front());
   lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  lcd.print(millis() / 1000);
+  lcd.print(text.back());
 
-  // ULTRASOUND CODE
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
+  delay(timeout);
+  lcd.clear();
+}
 
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+void remove_uid_from_room(String uid) {
+  auto iterator = std::find(uids_in_room.begin(), uids_in_room.end(), uid);
+  if (iterator != uids_in_room.end()) uids_in_room.erase(iterator);
+}
 
-  duration = pulseIn(echoPin, HIGH, 30000);
-
-  /*
-  if (duration == 0) {
-    Serial.println("No echo");
-  } else {
-    distance = duration * 0.034 / 2;
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.println(" cm");
+void activate_buzzer(int no_loops) {
+  for (int i = no_loops; i > 0; i--) {
+    tone(buzzer_pin, 300);
+    delay(500);
+    noTone(2);
+    delay(500);
   }
-
-  delay(60);
-  */
-
-  // MOTION SENSOR CODE
-  int HandMotion = digitalRead(motionPin);
-
-  if (HandMotion) {
-    Serial.println("Hand Motion detected");
-  } else {
-    Serial.println("===nothing moves");
-  }
-  delay(100);
-
 }
