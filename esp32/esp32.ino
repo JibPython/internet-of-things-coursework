@@ -33,6 +33,10 @@ MFRC522DriverPinSimple ss_pin(32);
 MFRC522DriverSPI driver{ss_pin};
 MFRC522 mfrc522{driver};
 
+// setting up motion sensor
+const int motion_pin = 14;
+struct MovementTimes {time_t start_time; time_t end_time;};
+
 // setting up the passive buzzer
 const int buzzer_pin = 33;
 
@@ -50,15 +54,18 @@ void setup() {
   SPI.begin(27, 19, 23, 32); // SCK, MISO, MOSI, SS
   mfrc522.PCD_Init();
 
+  // setting up the motion sensor
+  pinMode(motion_pin, INPUT);
+
   // setting up the passive buzzer
   pinMode(buzzer_pin, OUTPUT);
-
-
 }
 
 void loop() {
 
-  rfid_check();
+  // rfid_check();
+
+  motion_check();
 
   delay(50);
 }
@@ -114,6 +121,32 @@ void rfid_check() {
   }
 }
 
+void motion_check() {
+  const int movement_detected = digitalRead(motion_pin);
+
+  if (movement_detected && uids_in_room.size() == 0) {
+    tone(buzzer_pin, 300);
+    auto [start_time, end_time] = get_movement_times();
+    noTone(buzzer_pin);
+
+    Serial.print("start time: ");
+    Serial.print(start_time);
+    Serial.print(", end time: ");
+    Serial.println(end_time);
+
+    vector<String> lcd_text = {"movement whilst", "room is empty"};
+    send_lcd_message(lcd_text, 5000);
+  }
+  else if (movement_detected) {
+    auto [start_time, end_time] = get_movement_times();
+
+    Serial.print("start time: ");
+    Serial.print(start_time);
+    Serial.print(", end time: ");
+    Serial.println(end_time);
+  }
+}
+
 String get_rfid_uid() {
   String uid_string = "";
   for (uint8_t i = 0; i < mfrc522.uid.size; i++) {
@@ -162,4 +195,17 @@ void activate_buzzer(int no_loops) {
     noTone(2);
     delay(500);
   }
+}
+
+// this function gets the start and end movement times for the motion sensor
+MovementTimes get_movement_times() {
+  const time_t start_time = get_current_time(); 
+  int movement_detected = digitalRead(motion_pin);
+  while (movement_detected) {
+    int current_movement = digitalRead(motion_pin);
+    if (movementcurrent_movement) {movement_detected = !movement_detected;}
+    delay(50);
+  }
+  const time_t end_time = get_current_time();
+  return {start_time, end_time};
 }
