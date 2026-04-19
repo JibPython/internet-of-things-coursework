@@ -37,6 +37,9 @@ MFRC522 mfrc522{driver};
 const int motion_pin = 14;
 struct MovementTimes {time_t start_time; time_t end_time;};
 
+// setting up the sound sensor
+const int sound_pin = 4;
+
 // setting up the passive buzzer
 const int buzzer_pin = 33;
 
@@ -57,6 +60,9 @@ void setup() {
   // setting up the motion sensor
   pinMode(motion_pin, INPUT);
 
+  // setting up the sound sensor
+  pinMode(sound_pin, INPUT);
+
   // setting up the passive buzzer
   pinMode(buzzer_pin, OUTPUT);
 }
@@ -65,7 +71,9 @@ void loop() {
 
   // rfid_check();
 
-  motion_check();
+  // motion_check();
+
+  sound_check();
 
   delay(50);
 }
@@ -147,6 +155,15 @@ void motion_check() {
   }
 }
 
+void sound_check() {
+  int detected_sound = digitalRead(sound_pin);
+
+  if (detected_sound && uids_in_room.size() == 0) {
+    vector<String> lcd_text = {"sound whilst", "room is empty"};
+    send_lcd_message(lcd_text, 5000);
+  }
+}
+
 String get_rfid_uid() {
   String uid_string = "";
   for (uint8_t i = 0; i < mfrc522.uid.size; i++) {
@@ -203,7 +220,7 @@ MovementTimes get_movement_times() {
   int movement_detected = digitalRead(motion_pin);
   while (movement_detected) {
     int current_movement = digitalRead(motion_pin);
-    if (movementcurrent_movement) {movement_detected = !movement_detected;}
+    if (!current_movement) {movement_detected = !movement_detected;}
     delay(50);
   }
   const time_t end_time = get_current_time();
