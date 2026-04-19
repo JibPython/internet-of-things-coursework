@@ -40,6 +40,11 @@ struct MovementTimes {time_t start_time; time_t end_time;};
 // setting up the sound sensor
 const int sound_pin = 4;
 
+// setting up the ultrasonic sensor
+const int ultra_echo_pin = 18;
+const int ultra_trig_pin = 5;
+long duration;
+
 // setting up the passive buzzer
 const int buzzer_pin = 33;
 
@@ -63,6 +68,10 @@ void setup() {
   // setting up the sound sensor
   pinMode(sound_pin, INPUT);
 
+  // setting up the ultrasonic sensor
+  pinMode(ultra_trig_pin, OUTPUT);
+  pinMode(ultra_echo_pin, INPUT);
+
   // setting up the passive buzzer
   pinMode(buzzer_pin, OUTPUT);
 }
@@ -73,7 +82,9 @@ void loop() {
 
   // motion_check();
 
-  sound_check();
+  // sound_check();
+
+  ultrasonic_check();
 
   delay(50);
 }
@@ -164,6 +175,40 @@ void sound_check() {
   }
 }
 
+void ultrasonic_check() {
+  int distance = get_distance(); 
+
+  Serial.println(distance);
+
+  const int close = 30;
+  const int close_freq = 300;
+  const int very_close = 18;
+  const int very_close_freq = 400;
+
+  // this variable makes it so that the tone of the buzzer only changes if the distance type changes (close, very_close) 
+  // from the previous state so the sound doesn't sound weird.
+  String previous_distance = "";
+
+  while (distance <= close) {
+    if (distance <= very_close) {
+      if (previous_distance == "" || previous_distance == "close") {
+        tone(buzzer_pin, very_close_freq);
+        previous_distance = "very_close";
+      } 
+    }
+    else {
+      if (previous_distance == "" || previous_distance == "very_close") {
+        tone(buzzer_pin, close_freq);
+        previous_distance = "close";
+      } 
+    }
+    distance = get_distance(); 
+    Serial.println(distance);
+  }
+
+  noTone(buzzer_pin);
+}
+
 String get_rfid_uid() {
   String uid_string = "";
   for (uint8_t i = 0; i < mfrc522.uid.size; i++) {
@@ -225,4 +270,16 @@ MovementTimes get_movement_times() {
   }
   const time_t end_time = get_current_time();
   return {start_time, end_time};
+}
+
+// this returns the distance for the ultrasonic sensor
+int get_distance() {
+  digitalWrite(ultra_trig_pin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(ultra_trig_pin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(ultra_trig_pin, LOW);
+
+  duration = pulseIn(ultra_echo_pin, HIGH);
+  return (duration * 0.034 / 2); 
 }
