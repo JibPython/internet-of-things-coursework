@@ -2,6 +2,17 @@
 #include <WiFi.h>
 #include <credentials.h>
 
+// for mqtt
+#include <PubSubClient.h>
+const char* mqtt_server = "io.adafruit.com";
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// for creating timer to avoid ada throttling
+unsigned long startMillis;  
+unsigned long currentMillis;
+const unsigned long period = 2000;
+
 // for dht11
 #include <DHT.h>
 
@@ -29,6 +40,7 @@ using namespace std;
 // .push_back("") to add to back to vector
 // .pop_back("") to remove last vector item
 vector<String> uids_in_room = {};
+// "97770d01"
 vector<String> acceptable_uids = {"97770d01"};
 
 // setting up the 1602 lcd row values
@@ -63,6 +75,8 @@ const int buzzer_pin = 33;
 
 void setup() {
   Serial.begin(115200);
+  // triggering the timer to start
+  startMillis = millis();
 
   // connecting to the wifi
   WiFi.mode(WIFI_STA);
@@ -73,6 +87,9 @@ void setup() {
       Serial.print(".");
       delay(100);
   }
+  
+  // connecting to adafruit 
+  client.setServer(mqtt_server, 1883);
 
   Serial.println("\nConnected to the WiFi network");
   Serial.print("Local ESP32 IP: ");
@@ -106,8 +123,9 @@ void setup() {
 }
 
 void loop() {
+  maintain_mqtt();
 
-  // rfid_check();
+  rfid_check();
 
   // motion_check();
 
@@ -150,6 +168,12 @@ void rfid_check() {
     send_lcd_message(lcd_text, 5000);
 
     Serial.println("acceptable user trying to enter room");
+
+    const String alert_message = "Authorised user entered the room.\nWith the uid: " + uid;
+    high_priority("rfid", alert_message);
+
+    const String inside_warehouse = get_people_inside();
+    high_priority("inside", inside_warehouse);
   }
   // acceptable user trying to leave room
   else if (is_rfid_acceptable && is_uid_in_room) {
@@ -159,15 +183,28 @@ void rfid_check() {
     send_lcd_message(lcd_text, 5000);
 
     Serial.println("acceptable user trying to leave room");
+
+    const String alert_message = "Authorised user left the room.\nWith the uid: " + uid;
+    high_priority("rfid", alert_message);
+
+    const String inside_warehouse = get_people_inside();
+    high_priority("inside", inside_warehouse);
   }
   // unacceptable user trying to interact with RFID
   else if (!is_rfid_acceptable && uid != "") {
+
     vector<String> lcd_text = {"RFID not in", "the database"};
     send_lcd_message(lcd_text, 5000);
 
     activate_buzzer(1);
 
     Serial.println("unacceptable user trying to interact with RFID");
+
+    const String alert_message = "Unauthorised user tried interacting with the RFID scanner.\nWith the uid: " + uid;
+    high_priority("rfid", alert_message);
+
+    const String inside_warehouse = get_people_inside();
+    high_priority("inside", inside_warehouse);
   }
 }
 
@@ -247,6 +284,8 @@ void temperature_check() {
   float max_threshold = 30.00;
   Serial.print("Temperature: ");
   Serial.println(temp_c);
+  
+  normal_priority("temperature", temp_c);
 
   if (temp_c > max_threshold) {
     tone(buzzer_pin, 300);
@@ -255,6 +294,7 @@ void temperature_check() {
     send_lcd_message(lcd_text, 5000);
 
     noTone(buzzer_pin);
+    high_priority("alert", "Temperature is above the maximum threshold.");
   }
   else if (temp_c < min_threshold) {
     tone(buzzer_pin, 300);
@@ -263,6 +303,7 @@ void temperature_check() {
     send_lcd_message(lcd_text, 5000);
 
     noTone(buzzer_pin);
+    high_priority("alert", "Temperature is below the minimum threshold.");
   }
 
 }
@@ -312,7 +353,7 @@ void activate_buzzer(int no_loops) {
   for (int i = no_loops; i > 0; i--) {
     tone(buzzer_pin, 300);
     delay(500);
-    noTone(2);
+    noTone(buzzer_pin);
     delay(500);
   }
 }
@@ -340,4 +381,105 @@ int get_distance() {
 
   duration = pulseIn(ultra_echo_pin, HIGH);
   return (duration * 0.034 / 2); 
+}
+
+void maintain_mqtt() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  // keep MQTT alive
+  client.loop();
+}
+
+// ensures that esp32 stays connected to broker
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting to create an MQTT connection...");
+    if (client.connect("esp32", adafruit_username, adafruit_key)) {
+      Serial.println("connected");
+      client.subscribe("JibPython/feeds/output");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.println(client.state());
+      delay(5000);
+    }
+  }
+}
+
+void save_details(String route, float msg) {
+  const char* formatted_msg = to_string(msg).c_str();
+  if (route == "temperature") {
+    client.publish("JibPython/feeds/temperature", formatted_msg);
+  }
+  else if (route == "rfid") {
+    client.publish("JibPython/feeds/alert", formatted_msg);
+    Serial.println(formatted_msg);
+  }
+  else if (route == "inside") {
+    client.publish("JibPython/feeds/peopleinroom", formatted_msg);
+    Serial.println(formatted_msg);
+  }
+}
+
+void save_details(String route, String msg) {
+  const char* formatted_msg = msg.c_str();
+  if (route == "temperature") {
+    client.publish("JibPython/feeds/temperature", formatted_msg);
+  }
+  else if (route == "rfid") {
+    client.publish("JibPython/feeds/alert", formatted_msg);
+    Serial.println(formatted_msg);
+  }
+  else if (route == "inside") {
+    client.publish("JibPython/feeds/peopleinroom", formatted_msg);
+    Serial.println(formatted_msg);
+  }
+}
+
+// returns true if enough time has passed since last publish and updates timer. Used for normal priority.
+bool time_passed() {
+  currentMillis = millis();
+  if (currentMillis - startMillis >= period) {
+    startMillis = currentMillis;
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+// used for events that MUST be published to adafruit
+void high_priority(String route, auto data) {
+  currentMillis = millis();
+  while (currentMillis - startMillis < period) { currentMillis = millis(); client.loop(); }
+  startMillis = currentMillis;
+
+  if (!client.connected()) {
+    reconnect();
+  }
+  
+  save_details(route, data);
+}
+
+// used for events that don't have to always publish latest data
+void normal_priority(String route, auto data) {
+  if (time_passed()) {
+    save_details(route, data);
+  }
+}
+
+// returns a text formatted of people who are inside the house
+String get_people_inside() {
+  String temp_msg = "";
+
+  if (uids_in_room.size() > 0) { 
+    for (int i=0; i < uids_in_room.size(); i++) {
+      temp_msg += "\n" + uids_in_room[i];
+    }
+  }
+  else {
+    temp_msg = "There is currently no one inside.\n";
+  }
+
+  return temp_msg;
 }
