@@ -1,3 +1,7 @@
+// for wifi 
+#include <WiFi.h>
+#include <credentials.h>
+
 // for dht11
 #include <DHT.h>
 
@@ -59,6 +63,20 @@ const int buzzer_pin = 33;
 
 void setup() {
   Serial.begin(115200);
+
+  // connecting to the wifi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("\nConnecting");
+
+  while(WiFi.status() != WL_CONNECTED){
+      Serial.print(".");
+      delay(100);
+  }
+
+  Serial.println("\nConnected to the WiFi network");
+  Serial.print("Local ESP32 IP: ");
+  Serial.println(WiFi.localIP());
 
   // setting up the 1602 lcd display 
   Wire.begin(SDA_PIN, SCL_PIN);
