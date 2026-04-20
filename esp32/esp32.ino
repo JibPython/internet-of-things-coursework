@@ -1,3 +1,6 @@
+// for dht11
+#include <DHT.h>
+
 // for rfid
 #include <SPI.h>
 #include <MFRC522v2.h>
@@ -45,6 +48,11 @@ const int ultra_echo_pin = 18;
 const int ultra_trig_pin = 5;
 long duration;
 
+// setting up the dht11 sensor
+#define Type DHT11
+const int dht_pin = 13;
+DHT dht(dht_pin, Type);
+
 // setting up the passive buzzer
 const int buzzer_pin = 33;
 
@@ -72,6 +80,9 @@ void setup() {
   pinMode(ultra_trig_pin, OUTPUT);
   pinMode(ultra_echo_pin, INPUT);
 
+  // setting up the DHT11 sensor
+  dht.begin();
+
   // setting up the passive buzzer
   pinMode(buzzer_pin, OUTPUT);
 }
@@ -84,7 +95,9 @@ void loop() {
 
   // sound_check();
 
-  ultrasonic_check();
+  // ultrasonic_check();
+
+  temperature_check();
 
   delay(50);
 }
@@ -207,6 +220,33 @@ void ultrasonic_check() {
   }
 
   noTone(buzzer_pin);
+}
+
+void temperature_check() {
+  // temperature in celsius
+  float temp_c = dht.readTemperature();
+  float min_threshold = 8.00;
+  float max_threshold = 30.00;
+  Serial.print("Temperature: ");
+  Serial.println(temp_c);
+
+  if (temp_c > max_threshold) {
+    tone(buzzer_pin, 300);
+
+    vector<String> lcd_text = {"temperature too", "high"};
+    send_lcd_message(lcd_text, 5000);
+
+    noTone(buzzer_pin);
+  }
+  else if (temp_c < min_threshold) {
+    tone(buzzer_pin, 300);
+
+    vector<String> lcd_text = {"temperature too", "low"};
+    send_lcd_message(lcd_text, 5000);
+
+    noTone(buzzer_pin);
+  }
+
 }
 
 String get_rfid_uid() {
