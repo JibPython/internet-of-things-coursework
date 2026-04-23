@@ -127,11 +127,11 @@ void loop() {
 
   rfid_check();
 
-  // motion_check();
+  //motion_check();
 
-  // sound_check();
+  sound_check();
 
-  // ultrasonic_check();
+  ultrasonic_check();
 
   temperature_check();
 
@@ -142,13 +142,13 @@ void loop() {
 void rfid_check() {
   // Reset the loop if no new card present on the sensor/reader. This saves the entire process when idle.
 	if (!mfrc522.PICC_IsNewCardPresent()) {
-		Serial.println("FAILED AT STOP 1");
+		//Serial.println("FAILED AT STOP 1");
     return;
 	}
 
 	// Select one of the cards.
 	if (!mfrc522.PICC_ReadCardSerial()) {
-    Serial.println("FAILED AT STOP 2");
+    //Serial.println("FAILED AT STOP 2");
 		return;
 	}
 
@@ -170,7 +170,7 @@ void rfid_check() {
     Serial.println("acceptable user trying to enter room");
 
     const String alert_message = "Authorised user entered the room.\nWith the uid: " + uid;
-    high_priority("rfid", alert_message);
+    high_priority("alert", alert_message);
 
     const String inside_warehouse = get_people_inside();
     high_priority("inside", inside_warehouse);
@@ -185,7 +185,7 @@ void rfid_check() {
     Serial.println("acceptable user trying to leave room");
 
     const String alert_message = "Authorised user left the room.\nWith the uid: " + uid;
-    high_priority("rfid", alert_message);
+    high_priority("alert", alert_message);
 
     const String inside_warehouse = get_people_inside();
     high_priority("inside", inside_warehouse);
@@ -201,7 +201,7 @@ void rfid_check() {
     Serial.println("unacceptable user trying to interact with RFID");
 
     const String alert_message = "Unauthorised user tried interacting with the RFID scanner.\nWith the uid: " + uid;
-    high_priority("rfid", alert_message);
+    high_priority("alert", alert_message);
 
     const String inside_warehouse = get_people_inside();
     high_priority("inside", inside_warehouse);
@@ -213,16 +213,21 @@ void motion_check() {
 
   if (movement_detected && uids_in_room.size() == 0) {
     tone(buzzer_pin, 300);
-    auto [start_time, end_time] = get_movement_times();
-    noTone(buzzer_pin);
+    // auto [start_time, end_time] = get_movement_times();
 
+    /*
     Serial.print("start time: ");
     Serial.print(start_time);
     Serial.print(", end time: ");
     Serial.println(end_time);
+    */
 
     vector<String> lcd_text = {"movement whilst", "room is empty"};
     send_lcd_message(lcd_text, 5000);
+
+    noTone(buzzer_pin);
+
+    high_priority("alert", "Motion detected whilst the room is empty. Possible intruder.");
   }
   else if (movement_detected) {
     auto [start_time, end_time] = get_movement_times();
@@ -240,6 +245,8 @@ void sound_check() {
   if (detected_sound && uids_in_room.size() == 0) {
     vector<String> lcd_text = {"sound whilst", "room is empty"};
     send_lcd_message(lcd_text, 5000);
+
+    high_priority("alert", "Sound detected whilst the room is empty. Potential intruder.");
   }
 }
 
@@ -282,8 +289,9 @@ void temperature_check() {
   float temp_c = dht.readTemperature();
   float min_threshold = 8.00;
   float max_threshold = 30.00;
-  Serial.print("Temperature: ");
-  Serial.println(temp_c);
+  
+  //Serial.print("Temperature: ");
+  //Serial.println(temp_c);
   
   normal_priority("temperature", temp_c);
 
@@ -294,7 +302,15 @@ void temperature_check() {
     send_lcd_message(lcd_text, 5000);
 
     noTone(buzzer_pin);
-    high_priority("alert", "Temperature is above the maximum threshold.");
+
+    String message = "Temperature is above the maximum threshold.";
+    if (uids_in_room.size() > 0) {
+      message += " People need to be evacuated from the room.";
+    }
+    else {
+      message += " The room is empty.";
+    }
+    high_priority("alert", message);
   }
   else if (temp_c < min_threshold) {
     tone(buzzer_pin, 300);
@@ -303,7 +319,15 @@ void temperature_check() {
     send_lcd_message(lcd_text, 5000);
 
     noTone(buzzer_pin);
-    high_priority("alert", "Temperature is below the minimum threshold.");
+
+    String message = "Temperature is below the minimum threshold.";
+    if (uids_in_room.size() > 0) {
+      message += " People need to be evacuated from the room.";
+    }
+    else {
+      message += " The room is empty.";
+    }
+    high_priority("alert", message);
   }
 
 }
@@ -394,9 +418,9 @@ void maintain_mqtt() {
 // ensures that esp32 stays connected to broker
 void reconnect() {
   while (!client.connected()) {
-    Serial.print("Attempting to create an MQTT connection...");
+    // Serial.print("Attempting to create an MQTT connection...");
     if (client.connect("esp32", adafruit_username, adafruit_key)) {
-      Serial.println("connected");
+      // Serial.println("connected");
       client.subscribe("JibPython/feeds/output");
     } else {
       Serial.print("failed, rc=");
@@ -411,7 +435,7 @@ void save_details(String route, float msg) {
   if (route == "temperature") {
     client.publish("JibPython/feeds/temperature", formatted_msg);
   }
-  else if (route == "rfid") {
+  else if (route == "alert") {
     client.publish("JibPython/feeds/alert", formatted_msg);
     Serial.println(formatted_msg);
   }
@@ -426,7 +450,7 @@ void save_details(String route, String msg) {
   if (route == "temperature") {
     client.publish("JibPython/feeds/temperature", formatted_msg);
   }
-  else if (route == "rfid") {
+  else if (route == "alert") {
     client.publish("JibPython/feeds/alert", formatted_msg);
     Serial.println(formatted_msg);
   }

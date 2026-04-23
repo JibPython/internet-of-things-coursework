@@ -1,2 +1,4 @@
 esp32/credentials.cpp
 esp32/credentials.h
+python-middleware/firebase-key.json
+website/data-monitoring/app/firebase.config.js
